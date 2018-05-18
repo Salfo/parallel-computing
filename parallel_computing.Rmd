@@ -1,0 +1,118 @@
+---
+title: "Notes on Parallel Computing in R"
+author: "Salfo Bikienga"
+date: "May 17, 2018"
+output: html_document
+---
+
+```{r}
+library(parallel) # Needed for parallel computing
+cores <- detectCores(logical = FALSE) # detect the number of cores
+cores
+threads <- detectCores(logical = TRUE) # detect the number of threads or workers
+threads
+```
+
+```{r}
+n_workers <- threads - 1 # Do not use all threads so the computer can still be used while the heavy program is running
+cl <- makeCluster(n_workers) # create a cluster; 
+cl
+stopCluster(cl) # needed at the end of the program to release the workers
+```
+
+Example: generate 6 sets of N normal(5, 2) random samples
+
+1- The single worker way
+
+```{r}
+N <- 1e6
+P <- 100
+res <- list()
+t <- proc.time()
+for (i in 1:P) {
+  res[[i]] <- rnorm(n = N, mean = 5, sd = 2)
+}
+proc.time()- t
+res1 <- as.data.frame(res)
+names(res1) <- paste0('Var_', 1:P)
+#head(res1)
+rm(res)
+rm(res1)
+```
+
+2- multiple workers way
+
+```{r}
+cl <- makeCluster(n_workers) # this code start n_workers R sessions
+t <- proc.time()
+res <- clusterApply(cl, rep(N, P), 
+        fun = function(x) rnorm(x, mean = 5, sd = 2))
+proc.time()- t
+stopCluster(cl)
+res1 <- as.data.frame(res)
+names(res1) <- paste0('Var_', 1:P)
+#head(res1)
+rm(res)
+rm(res1)
+
+```
+
+3- Vectorize if possible
+
+```{r}
+t <- proc.time()
+res <- matrix(rnorm(n = N*P, mean = 5, sd = 2), 
+              nrow = N, ncol = P)
+proc.time()- t
+rm(res)
+```
+
+
+makeCluster() starts n_workers R sessions. So, if a program requires packages not in base R, we need to load the required packages in each session.
+
+Use clusterEvalQ() with a list of required packages
+
+```{r, eval=FALSE}
+# load the libraries to each of the n_workers 
+clusterEvalQ(cl, library('pack1'))
+clusterEvalQ(cl, library('pack2'))
+clusterEvalQ(cl, library('pack3'))
+clusterEvalQ(cl, library('pack4'))
+clusterEvalQ(cl, library('pack5'))
+```
+
+Use clusterEvalQ(cl, {'insert data, or file sources'}) to distribute some data or source files to each worker.
+
+```{r, eval=FALSE}
+clusterEvalQ(cl, {
+    library('packx')
+    mean <- 10
+    sd <- 5
+    source("test.R")
+})
+
+# or 
+clusterCall(cl, function() { source("test.R") })
+```
+
+Alternatively, package my functions into a package that I can then load into each worker.
+
+For reproducibility, use RNGkind() instead of set.seed()
+
+```{r, eval=TRUE}
+cl <- makeCluster(n_workers)
+seed <- 1
+clusterSetRNGStream(cl, seed)
+clusterEvalQ(cl, RNGkind())
+do.call(rbind, clusterApply(cl, rep(5, 3), rnorm))
+stopCluster(cl)
+```
+
+
+# Good ressources
+
+1- https://stackoverflow.com/questions/21583617/parallelization-in-r-how-to-source-on-every-node
+
+2- http://gforge.se/2015/02/how-to-go-parallel-in-r-basics-tips/
+
+3- https://rawgit.com/PPgp/useR2017public/master/tutorial.html
